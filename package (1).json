@@ -1,0 +1,15 @@
+{
+  "name": "google-ads-proxy",
+  "version": "1.0.0",
+  "description": "Proxy pour relayer les appels Google Ads API depuis Base44",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
