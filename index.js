@@ -1,18 +1,20 @@
-/**
- * Google Ads API Proxy
- * Relaie les appels de Base44 vers googleads.googleapis.com
- * Déployer sur Railway : https://railway.app
- */
+'use strict';
 
 const express = require('express');
+const https = require('https');
+const { URL } = require('url');
+
 const app = express();
+const PORT = process.env.PORT || 8080;
+const PROXY_SECRET = process.env.PROXY_SECRET || 'unyx-gads-2026';
+const GOOGLE_ADS_BASE = 'https://googleads.googleapis.com';
 
-app.use(express.json());
+// ─── 1. Health check — NO auth, avant tout middleware ────────────────────────
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
 
-// Sécurité : clé secrète partagée entre Base44 et ce proxy
-const PROXY_SECRET = process.env.PROXY_SECRET || 'changeme';
-
-// Middleware de vérification de la clé secrète
+// ─── 2. Middleware d'authentification ────────────────────────────────────────
 app.use((req, res, next) => {
   const secret = req.headers['x-proxy-secret'];
   if (secret !== PROXY_SECRET) {
@@ -21,52 +23,57 @@ app.use((req, res, next) => {
   next();
 });
 
-// Route principale : relaie tout vers googleads.googleapis.com
-app.all('/googleads/*', async (req, res) => {
-  const path = req.path.replace('/googleads', '');
-  const targetUrl = `https://googleads.googleapis.com${path}`;
+// ─── 3. Parse le body en buffer brut ─────────────────────────────────────────
+app.use(express.raw({ type: '*/*', limit: '10mb' }));
 
-  // Récupère les headers pertinents
-  const headers = {
-    'Authorization': req.headers['authorization'] || '',
-    'developer-token': req.headers['developer-token'] || '',
-    'Content-Type': 'application/json',
+// ─── 4. Proxy — toutes les routes vers googleapis ────────────────────────────
+app.use((req, res) => {
+  const targetUrl = new URL(`${GOOGLE_ADS_BASE}${req.path}`);
+
+  for (const [key, value] of Object.entries(req.query)) {
+    targetUrl.searchParams.set(key, value);
+  }
+
+  const forwardHeaders = {
+    'content-type': req.headers['content-type'] || 'application/json',
+    'authorization': req.headers['authorization'],
+    'developer-token': req.headers['developer-token'],
+  };
+  if (req.headers['login-customer-id']) {
+    forwardHeaders['login-customer-id'] = req.headers['login-customer-id'];
+  }
+  Object.keys(forwardHeaders).forEach(
+    k => forwardHeaders[k] === undefined && delete forwardHeaders[k]
+  );
+
+  const body = Buffer.isBuffer(req.body) && req.body.length > 0 ? req.body : null;
+  if (body) forwardHeaders['content-length'] = Buffer.byteLength(body);
+
+  const options = {
+    hostname: 'googleads.googleapis.com',
+    path: targetUrl.pathname + (targetUrl.search || ''),
+    method: req.method,
+    headers: forwardHeaders,
   };
 
-  // Ajoute login-customer-id si présent
-  if (req.headers['login-customer-id']) {
-    headers['login-customer-id'] = req.headers['login-customer-id'];
-  }
-
-  try {
-    const fetchOptions = {
-      method: req.method,
-      headers,
-    };
-
-    if (req.method !== 'GET' && req.body && Object.keys(req.body).length > 0) {
-      fetchOptions.body = JSON.stringify(req.body);
+  const proxyReq = https.request(options, (proxyRes) => {
+    res.status(proxyRes.statusCode);
+    for (const [key, value] of Object.entries(proxyRes.headers)) {
+      try { res.setHeader(key, value); } catch (_) {}
     }
+    proxyRes.pipe(res);
+  });
 
-    const response = await fetch(targetUrl, fetchOptions);
-    const data = await response.text();
+  proxyReq.on('error', (err) => {
+    console.error('[proxy error]', err.message);
+    res.status(502).json({ error: 'Bad Gateway', detail: err.message });
+  });
 
-    res.status(response.status);
-    res.set('Content-Type', 'application/json');
-    res.send(data);
-
-  } catch (error) {
-    console.error('Proxy error:', error);
-    res.status(500).json({ error: error.message });
-  }
+  if (body) proxyReq.write(body);
+  proxyReq.end();
 });
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-const PORT = process.env.PORT || 3000;
+// ─── 5. Start ─────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`Google Ads Proxy running on port ${PORT}`);
+  console.log(`gads-proxy listening on port ${PORT}`);
 });
