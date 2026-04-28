@@ -1,0 +1,38 @@
+steps:
+  # 1. Build sans cache pour garantir que index.js est toujours pris en compte
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--no-cache'
+      - '-t'
+      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gads-proxy:$COMMIT_SHA'
+      - '-t'
+      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gads-proxy:latest'
+      - '.'
+
+  # 2. Push les deux tags
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gads-proxy'
+
+  # 3. Deploy sur Cloud Run avec l'image taguée par commit SHA
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'gads-proxy'
+      - '--image=europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gads-proxy:$COMMIT_SHA'
+      - '--region=europe-west1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--port=8080'
+
+images:
+  - 'europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gads-proxy:$COMMIT_SHA'
+  - 'europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/gads-proxy:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
