@@ -14,6 +14,22 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+// ─── Route de diagnostic ──────────────────────────────────────────────────────
+app.get('/test-gads', async (req, res) => {
+  try {
+    const response = await fetch('https://googleads.googleapis.com/v19/customers:listAccessibleCustomers', {
+      headers: {
+        'Authorization': 'Bearer TEST_TOKEN',
+        'developer-token': '7cWyz-WukeovsS5nxWpPwg',
+      }
+    });
+    const text = await response.text();
+    res.json({ status: response.status, body: text.substring(0, 500) });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
 // ─── 2. Middleware d'authentification ────────────────────────────────────────
 app.use((req, res, next) => {
   const secret = req.headers['x-proxy-secret'];
@@ -73,22 +89,6 @@ app.use((req, res) => {
   proxyReq.end();
 });
 
-
-// ─── Route de diagnostic ──────────────────────────────────────────────────────
-app.get('/test-gads', async (req, res) => {
-  try {
-    const response = await fetch('https://googleads.googleapis.com/v19/customers:listAccessibleCustomers', {
-      headers: {
-        'Authorization': 'Bearer TEST_TOKEN',
-        'developer-token': '7cWyz-WukeovsS5nxWpPwg',
-      }
-    });
-    const text = await response.text();
-    res.json({ status: response.status, body: text.substring(0, 500) });
-  } catch (err) {
-    res.json({ error: err.message });
-  }
-});
 
 // ─── 5. Start ─────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
